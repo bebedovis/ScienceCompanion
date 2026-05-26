@@ -11,7 +11,8 @@ dist/
 venv/
 chroma_db/
 uploads/
-papers/
+papers/*
+!papers/.gitkeep
 sessions.db
 *.log
 .DS_Store
