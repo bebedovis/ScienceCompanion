@@ -11,7 +11,19 @@ class ServiceContainer:
         self._llm = None
         self._rag_graph = None
         self._document_registry = None
+        self._api_service = None
 
+    @property
+    def arxiv_service(self):
+        if self._api_service is None:
+            raise RuntimeError("ArXiv service not initialized")
+        return self._api_service
+
+    def set_arxiv_service(self):
+        if self._api_service is not None:
+            raise RuntimeError("ArXiv service already initialized")
+        from backend.services.API import ArxivService
+        self._api_service = ArxivService()
     @property
     def embedder(self):
         if self._embedder is None:
@@ -150,3 +162,4 @@ class ServiceContainer:
         self.document_registry = s
         self.set_rag_graph()
         self._init_keyword_retriever()
+        self.set_arxiv_service()

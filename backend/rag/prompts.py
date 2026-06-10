@@ -12,6 +12,13 @@ Instructions for each style:
 - brief: 2-3 paragraph executive summary focusing on key contributions
 - section_by_section: Structured summary that follows the paper's sections in order
 """
+QUERY_FETCHING_PROMPT = """\
+Given the user's query below, generate a concise and optimized arXiv search query that will retrieve the most relevant scientific papers.
+
+User query: {query}
+
+Respond with only the search query string, nothing else.
+"""
 
 QUERY_ANALYSIS_PROMPT = """\
 You are a scientific research assistant. Classify the user's query and rewrite it for optimal retrieval.

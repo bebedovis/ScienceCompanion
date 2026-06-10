@@ -73,15 +73,21 @@ async def chat(container: ServiceContainer, settings, query: str, session_id: st
             "reranker": container.reranker,
             "top_k": settings.default_top_k,
             "rerank_top_n": settings.rerank_top_n,
+            "arxiv_service": container.arxiv_service,
+            "ingest_fn": lambda path: ingest_pdf(container, settings, path),
+            "document_registry": container.document_registry,
+            "download_dir": settings.upload_path,
         }
     }
     state: RAGState = {
         "query": query,
+        "arxiv_query": "",
         "session_id": session_id,
         "doc_filter": None,
         "messages": [HumanMessage(content=query)],
         "rewritten_query": "",
         "query_type": "general",
+        "arxiv_results": [],
         "retrieved_chunks": [],
         "reranked_chunks": [],
         "context": "",

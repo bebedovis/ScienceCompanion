@@ -1,10 +1,11 @@
 import json
 
+from annotated_doc import Doc
 import tiktoken
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from backend.rag.prompts import QUERY_ANALYSIS_PROMPT, RAG_SYSTEM_PROMPT
+from backend.rag.prompts import QUERY_ANALYSIS_PROMPT, QUERY_FETCHING_PROMPT, RAG_SYSTEM_PROMPT
 from backend.rag.state import RAGState
 
 _MAX_CONTEXT_TOKENS = 6000
@@ -50,6 +51,47 @@ def build_context(chunks: list[dict]):
         chunks_included.append(chunk)
     return full_context, chunks_included
 
+
+async def arxiv_query_node(state:RAGState, config: RunnableConfig) -> dict:
+    llm = config["configurable"]["llm"].get_chat_model()
+    prompt = QUERY_FETCHING_PROMPT.format(query=state["query"])
+    response = await llm.ainvoke([
+        SystemMessage(content="You are a helpful assistant that generates optimized search queries for scientific papers."),
+        HumanMessage(content=prompt),
+    ])
+    optimized_query = response.content.strip()
+    return {"arxiv_query": optimized_query}
+
+async def fetch_papers(state: RAGState, config: RunnableConfig) -> dict:
+    arxiv_service = config["configurable"]["arxiv_service"]
+    ingest_fn = config["configurable"]["ingest_fn"]
+    document_registry = config["configurable"]["document_registry"]
+    download_dir = config["configurable"]["download_dir"]
+
+    query = state.get("arxiv_query", "")
+    if not query:
+        return {"arxiv_results": []}
+
+    already_indexed = {doc.filename for doc in document_registry.list_all()}
+    results = await arxiv_service.search(query)
+
+    fetched_docs = []
+    for result in results:
+        filename = result.get_short_id().replace("/", "_") + ".pdf"
+        if filename in already_indexed:
+            print(f"  [arxiv] already indexed: {result.title[:60]}")
+            continue
+        print(f"  [arxiv] downloading: {result.title[:60]}")
+        try:
+            pdf_path = await arxiv_service.download(result, download_dir)
+            await ingest_fn(pdf_path)
+            print(pdf_path)
+            fetched_docs.append(arxiv_service.result_to_document(result, pdf_path))
+        except Exception as exc:
+            print(f"  [arxiv] failed {result.get_short_id()}: {exc}")
+
+    return {"arxiv_results": fetched_docs}
+    
 
 async def query_analysis_node(state: RAGState, config: RunnableConfig) -> dict:
     llm = config["configurable"]["llm"].get_chat_model()

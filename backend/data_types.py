@@ -24,6 +24,7 @@ class DocumentMetadata:
     abstract: str = ""
     subject_tags: list[str] = field(default_factory=list)
     journal: Optional[str] = None
+    arxiv_id: str = ""
 
 @dataclass
 class Document:
