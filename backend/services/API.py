@@ -56,8 +56,8 @@ async def main():
     arxiv = ArxivService()
     results = await arxiv.search("optical tweezers")
     for result in results: 
-        pdf_path = await arxiv.download(result, Path(os.path.expanduser("~/.cache/")))
-        print(pdf_path)
+        print(result.title)
+        print([a.name for a in result.authors])
 
 
 

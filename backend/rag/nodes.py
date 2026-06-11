@@ -85,11 +85,9 @@ async def fetch_papers(state: RAGState, config: RunnableConfig) -> dict:
         try:
             pdf_path = await arxiv_service.download(result, download_dir)
             await ingest_fn(pdf_path)
-            print(pdf_path)
             fetched_docs.append(arxiv_service.result_to_document(result, pdf_path))
         except Exception as exc:
             print(f"  [arxiv] failed {result.get_short_id()}: {exc}")
-
     return {"arxiv_results": fetched_docs}
     
 

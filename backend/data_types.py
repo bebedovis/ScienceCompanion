@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -37,7 +38,7 @@ class Document:
 
 @dataclass
 class Chunk:
-    id: str = ""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     paper_id: str = ""
     text: str = ""
     chunk_index: int = 0
@@ -55,5 +56,5 @@ class Chunk:
             "title": doc.metadata.title,
             "authors": ", ".join(doc.metadata.authors),
             "year": doc.metadata.year or 0,
-            "journal":doc.metadata.journal
+            "journal": doc.metadata.journal or ""
         }

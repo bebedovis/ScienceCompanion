@@ -1,6 +1,8 @@
+import asyncio
 import re
-import httpx
 from typing import Optional
+
+import arxiv
 
 from backend.data_types import DocumentMetadata
 from backend.services.ingestion.pdf_parser import ParsedDocument
@@ -57,37 +59,26 @@ class MetadataExtractor:
         aid = clean_id.group(1).split("v")[0]
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(
-                    f"https://export.arxiv.org/abs/{aid}",
-                    headers={"User-Agent": "ScienceCompadre/0.1"},
-                )
-                r.raise_for_status()
+            client = arxiv.Client()
+            results = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: list(client.results(arxiv.Search(id_list=[aid], max_results=1))),
+            )
+            if not results:
+                return None
+            result = results[0]
         except Exception:
             return None
 
-        html = r.text
-        meta = DocumentMetadata(arxiv_id=arxiv_id)
-
-        title_m = re.search(r'<h1 class="title mathjax">.*?<span[^>]*>(.*?)</span>', html, re.DOTALL)
-        if title_m:
-            meta.title = re.sub(r"<[^>]+>", "", title_m.group(1)).strip()
-
-        authors_m = re.findall(r'class="author"[^>]*>.*?<a[^>]*>(.*?)</a>', html, re.DOTALL)
-        meta.authors = [re.sub(r"<[^>]+>", "", a).strip() for a in authors_m]
-
-        abstract_m = re.search(
-            r'<blockquote class="abstract mathjax">.*?<span[^>]*>(.*?)</span>',
-            html, re.DOTALL
+        return DocumentMetadata(
+            arxiv_id=arxiv_id,
+            title=result.title,
+            authors=[a.name for a in result.authors],
+            abstract=result.summary,
+            year=result.published.year if result.published else None,
+            doi=result.doi,
+            journal=result.journal_ref,
         )
-        if abstract_m:
-            meta.abstract = re.sub(r"<[^>]+>", "", abstract_m.group(1)).strip()
-
-        year_m = _YEAR_RE.search(html[:3000])
-        if year_m:
-            meta.year = int(year_m.group())
-
-        return meta
 
     def _infer_title(self, text: str) -> str:
         for line in text.splitlines():

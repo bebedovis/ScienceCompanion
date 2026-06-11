@@ -19,7 +19,7 @@ from backend.services.ingestion.pdf_parser import PDFParser
 from backend.services.ingestion.section_extractor import SectionExtractor
 
 
-async def ingest_pdf(container: ServiceContainer, settings, pdf_path: Path) -> None:
+async def ingest_pdf(container: ServiceContainer, settings, pdf_path: Path, filename: str | None = None) -> None:
     """Copy a PDF into the upload dir, parse it, embed it, and add it to the index."""
     parser = PDFParser()
     section_extractor = SectionExtractor()
@@ -32,7 +32,7 @@ async def ingest_pdf(container: ServiceContainer, settings, pdf_path: Path) -> N
 
     doc = Document()
     doc.id = doc_id
-    doc.filename = pdf_path.name
+    doc.filename = filename or pdf_path.name
     doc.file_path = str(dest)
 
     container.document_registry.insert(doc)
@@ -40,7 +40,7 @@ async def ingest_pdf(container: ServiceContainer, settings, pdf_path: Path) -> N
 
     try:
         parsed = parser.parse(dest)
-        metadata = await meta_extractor.extract(parsed, pdf_path.name)
+        metadata = await meta_extractor.extract(parsed, filename or pdf_path.name)
         doc.metadata = metadata
         container.document_registry.insert(doc)
 
@@ -108,8 +108,19 @@ async def main() -> None:
     container = ServiceContainer()
     await container.startup()
 
-    # Ingest any PDFs not yet in the registry
-    already_indexed = {doc.filename for doc in container.document_registry.list_all()}
+    # Retry previously failed ingestions from uploads/
+    failed_docs = [d for d in container.document_registry.list_all() if d.status == DocumentStatus.FAILED]
+    for doc in failed_docs:
+        pdf_path = Path(doc.file_path)
+        if pdf_path.exists():
+            print(f"\nRetrying failed paper: {doc.filename}")
+            original_filename = doc.filename
+            container.document_registry.delete(doc.id)
+            await container.semantic_ret.delete_paper(doc.id)
+            await ingest_pdf(container, settings, pdf_path, filename=original_filename)
+
+    # Ingest any new PDFs from papers/
+    already_indexed = {doc.filename for doc in container.document_registry.list_all() if doc.status == DocumentStatus.READY}
     new_pdfs = [p for p in sorted(papers_dir.glob("*.pdf")) if p.name not in already_indexed]
 
     if new_pdfs:
