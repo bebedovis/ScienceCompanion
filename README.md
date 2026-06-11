@@ -4,12 +4,25 @@ A RAG (Retrieval-Augmented Generation) system for chatting with scientific PDF p
 
 ## Features
 
+- **ArXiv Integration** - if possible, dowloads relevant papers to the query for context
 - **Hybrid retrieval** — combines BM25 keyword search and ChromaDB semantic search
 - **Reranking** — cross-encoder reranker refines results before generation
 - **LangGraph pipeline** — query analysis → retrieval → reranking → generation → citation
 - **Flexible LLM backends** — OpenAI or Ollama (local models)
 - **Flexible embeddings** — HuggingFace or OpenAI
 - **Terminal interface** — `main.py` for a simple CLI chat loop
+
+## ArXiv Integration
+
+ScienceCompadre can download papers directly from ArXiv. Just provide a paper URL or ID and the system will fetch, parse, and index it for you.
+
+**Successful download**
+
+![Paper downloaded successfully](assets/good.gif)
+
+**Failed download** (e.g. invalid ID or network error)
+
+![Paper download failed](assets/failed.gif)
 
 ## Project Structure
 
