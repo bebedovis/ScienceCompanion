@@ -11,6 +11,10 @@ from backend.rag.state import RAGState
 _MAX_CONTEXT_TOKENS = 6000
 _enc = tiktoken.get_encoding("cl100k_base")
 
+###################################################
+########### Helper functions ######################
+###################################################
+
 def APAstyle_citation(meta:dict, source_num = 1):
     authors = meta.get("authors",[])
     # why joining in datatypes and splitting here, because chroma doesnt allow me to stroe lists jeje 
@@ -34,7 +38,6 @@ def APAstyle_citation(meta:dict, source_num = 1):
     apa_citation +=f"p.{meta.get('page', '')}\n"
     return apa_citation
 
-
 def build_context(chunks: list[dict]):
     full_context = ""
     used_tokens = 0
@@ -51,6 +54,9 @@ def build_context(chunks: list[dict]):
         chunks_included.append(chunk)
     return full_context, chunks_included
 
+###################################################
+################# Nodes ###########################
+###################################################
 
 async def arxiv_query_node(state:RAGState, config: RunnableConfig) -> dict:
     llm = config["configurable"]["llm"].get_chat_model()
@@ -74,6 +80,9 @@ async def fetch_papers(state: RAGState, config: RunnableConfig) -> dict:
 
     already_indexed = {doc.filename for doc in document_registry.list_all()}
     results = await arxiv_service.search(query)
+    if not results: 
+        print(f"WARNING: Unable to download any paper with query {query} context will use only papers already in the DB")
+        return {"arxiv_results": []}
 
     fetched_docs = []
     for result in results:
@@ -89,7 +98,6 @@ async def fetch_papers(state: RAGState, config: RunnableConfig) -> dict:
         except Exception as exc:
             print(f"  [arxiv] failed {result.get_short_id()}: {exc}")
     return {"arxiv_results": fetched_docs}
-    
 
 async def query_analysis_node(state: RAGState, config: RunnableConfig) -> dict:
     llm = config["configurable"]["llm"].get_chat_model()
@@ -108,7 +116,6 @@ async def query_analysis_node(state: RAGState, config: RunnableConfig) -> dict:
         rewritten = state["query"]
     return {"query_type": query_type, "rewritten_query": rewritten}
 
-
 async def retrieval_node(state: RAGState, config: RunnableConfig) -> dict:
     retriever = config["configurable"]["retriever"]
     top_k = int(config["configurable"].get("top_k", 20))
@@ -117,7 +124,6 @@ async def retrieval_node(state: RAGState, config: RunnableConfig) -> dict:
     chunks = await retriever(query, n_results=top_k, doc_filter=doc_filter)
     return {"retrieved_chunks": chunks}
 
-
 async def reranking_node(state: RAGState, config: RunnableConfig) -> dict:
     reranker = config["configurable"]["reranker"]
     top_n = int(config["configurable"].get("rerank_top_n", 6))
@@ -125,7 +131,6 @@ async def reranking_node(state: RAGState, config: RunnableConfig) -> dict:
     chunks = state["retrieved_chunks"]
     reranked_chunks = await reranker.rerank(query, chunks, top_n)
     return {"reranked_chunks": reranked_chunks}
-
 
 async def generation_node(state: RAGState, config: RunnableConfig) -> dict:
     llm = config["configurable"]["llm"].get_chat_model()

@@ -129,13 +129,9 @@ async def main() -> None:
             await ingest_pdf(container, settings, pdf)
 
     ready = [d for d in container.document_registry.list_all() if d.status == DocumentStatus.READY]
-    if not ready:
-        print(f"\nNo papers indexed yet. Drop PDFs into {papers_dir}/ and run again.")
-        return
-
-    print(f"\n{len(ready)} paper(s) ready:")
-    for doc in ready:
-        print(f"  • {doc.metadata.title or doc.filename}")
+    if ready:
+        for doc in ready:
+            print(f"  • {doc.metadata.title or doc.filename}")
 
     print("\nType your question, or 'quit' to exit.\n")
     session_id = str(uuid.uuid4())
