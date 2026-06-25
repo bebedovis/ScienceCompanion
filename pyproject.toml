@@ -17,7 +17,7 @@ dependencies = [
     "langchain-openai>=0.1.0",
     "langchain-community>=0.2.0",
     # Vector store
-    "chromadb>=0.5.0",
+    "opensearch-py>=2.7.0",
     # Embeddings & ML
     "sentence-transformers>=3.0.0",
     "torch>=2.3.0",

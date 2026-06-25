@@ -47,7 +47,7 @@ class Chunk:
     chunk_type: ChunkType = ChunkType.TEXT
     token_count: int = 0
     extra_metadata: dict = field(default_factory=dict)
-    def to_chroma_metadata(self, doc: Document) -> dict:
+    def to_metadata(self, doc: Document) -> dict:
         return {
             "paper_id": self.paper_id,
             "section": self.section,

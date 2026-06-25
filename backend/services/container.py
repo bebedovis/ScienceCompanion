@@ -54,9 +54,14 @@ class ServiceContainer:
             raise RuntimeError("Embedder must be initialized before semantic retriever")
         from backend.services.retrievers import SemanticRetriever
         self._semantic_ret = SemanticRetriever(
-            persist_dir=s.chroma_persist_dir,
-            collection_name=s.chroma_collection_name,
+            host=s.opensearch_host,
+            port=s.opensearch_port,
+            index_name=s.opensearch_index,
+            embedding_dim=s.embedding_dim,
             embedder=self.embedder,
+            username=s.opensearch_username,
+            password=s.opensearch_password,
+            use_ssl=s.opensearch_use_ssl,
         )
 
     @property

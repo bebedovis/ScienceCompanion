@@ -20,8 +20,13 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-large-en-v1.5"
     embedding_device: str = "cuda"
 
-    chroma_persist_dir: str = "./chroma_db"
-    chroma_collection_name: str = "paper_chunks"
+    opensearch_host: str = "localhost"
+    opensearch_port: int = 9200
+    opensearch_index: str = "paper_chunks"
+    opensearch_username: str = ""
+    opensearch_password: str = ""
+    opensearch_use_ssl: bool = False
+    embedding_dim: int = 1024
 
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 50

@@ -5,7 +5,7 @@ A RAG (Retrieval-Augmented Generation) system for chatting with scientific PDF p
 ## Features
 
 - **ArXiv Integration** - if possible, dowloads relevant papers to the query for context
-- **Hybrid retrieval** — combines BM25 keyword search and ChromaDB semantic search
+- **Hybrid retrieval** — combines BM25 keyword search and OpenSearch semantic search
 - **Reranking** — cross-encoder reranker refines results before generation
 - **LangGraph pipeline** — query analysis → retrieval → reranking → generation → citation
 - **Flexible LLM backends** — OpenAI or Ollama (local models)
@@ -51,12 +51,12 @@ ScienceCompadre/
 │           └── metadata_extractor.py
 ├── papers/                        # Drop PDFs here for CLI ingestion
 ├── uploads/                       # Stores uploaded PDFs and registry
-└── chroma_db/                     # Persisted vector store
+└── uploads/                       # Document metadata registry (document_registry.json)
 ```
 
 ## Setup
 
-**Requirements:** Python 3.11+
+**Requirements:** Python 3.11+, Docker
 
 ```bash
 # Install dependencies
@@ -67,6 +67,33 @@ cp .env.example .env
 ```
 
 Edit `.env` to set your LLM provider and API keys (see [Configuration](#configuration)).
+
+### Starting the vector store
+
+ScienceCompadre uses OpenSearch as its vector database. Start it with Docker before running the app:
+
+```bash
+docker run -d \
+  --name opensearch \
+  -p 9200:9200 -p 9600:9600 \
+  -e "discovery.type=single-node" \
+  -e "OPENSEARCH_INITIAL_ADMIN_PASSWORD=Sc1ence@Compadre!" \
+  opensearchproject/opensearch:2.17.0
+```
+
+Wait about 60 seconds for it to initialize, then verify it is ready:
+
+```bash
+curl -sk -u admin:'Sc1ence@Compadre!' https://localhost:9200/_cluster/health
+```
+
+You should see `"status":"yellow"` or `"status":"green"`. The app creates the index automatically on first startup — no manual setup needed.
+
+To stop and remove the container when you are done:
+
+```bash
+docker stop opensearch && docker rm opensearch
+```
 
 ## Usage
 
@@ -94,6 +121,13 @@ All settings are loaded from `.env`. Copy `.env.example` to get started.
 | `EMBEDDING_PROVIDER` | `huggingface` | `huggingface` or `openai` |
 | `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` | Model for embeddings |
 | `EMBEDDING_DEVICE` | `auto` | `auto`, `cpu`, or `cuda` |
+| `OPENSEARCH_HOST` | `localhost` | OpenSearch host |
+| `OPENSEARCH_PORT` | `9200` | OpenSearch port |
+| `OPENSEARCH_INDEX` | `paper_chunks` | Index name |
+| `OPENSEARCH_USERNAME` | — | OpenSearch username |
+| `OPENSEARCH_PASSWORD` | — | OpenSearch password |
+| `OPENSEARCH_USE_SSL` | `false` | Enable SSL (set to `true` for AWS) |
+| `EMBEDDING_DIM` | `1024` | Embedding vector size — must match the model |
 | `CHUNK_SIZE` | `512` | Token size per chunk |
 | `CHUNK_OVERLAP` | `64` | Overlap between chunks |
 | `DEFAULT_TOP_K` | `6` | Chunks returned per query |
@@ -101,7 +135,7 @@ All settings are loaded from `.env`. Copy `.env.example` to get started.
 
 ## How It Works
 
-1. **Ingestion** — PDFs are parsed by PyMuPDF, split into sections, chunked, and embedded. Chunks are stored in ChromaDB (semantic) and a BM25 in-memory index (keyword).
+1. **Ingestion** — PDFs are parsed by PyMuPDF, split into sections, chunked, and embedded. Chunks are stored in OpenSearch (semantic) and a BM25 in-memory index (keyword).
 2. **Retrieval** — queries hit both indexes; results are merged by the hybrid retriever.
 3. **Reranking** — a cross-encoder scores and reorders the candidates.
 4. **Generation** — an LLM generates an answer grounded in the top chunks, with citations back to the source paper.

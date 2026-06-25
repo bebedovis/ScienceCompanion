@@ -1,7 +1,6 @@
 import re
+from opensearchpy import OpenSearch
 from rank_bm25 import BM25Okapi
-import chromadb
-from chromadb.config import Settings as ChromaSettings
 from backend.data_types import Chunk, Document
 from backend.services.embeddings import Embedder
 
@@ -49,74 +48,135 @@ class KeywordRetriever:
 
 
 class SemanticRetriever:
-    """Vector similarity search using ChromaDB."""
+    """Vector similarity search using Amazon OpenSearch Service."""
 
-    def __init__(self, persist_dir: str, collection_name: str, embedder: Embedder) -> None:
-        self._client = chromadb.PersistentClient(
-            path=persist_dir,
-            settings=ChromaSettings(anonymized_telemetry=False),
+    _INDEX_SETTINGS = {
+        "settings": {
+            "index": {
+                "knn": True,
+                "knn.algo_param.ef_search": 100,
+            }
+        }
+    }
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        index_name: str,
+        embedding_dim: int,
+        embedder: Embedder,
+        username: str = "",
+        password: str = "",
+        use_ssl: bool = False,
+    ) -> None:
+        self._client = OpenSearch(
+            hosts=[{"host": host, "port": port}],
+            http_auth=(username, password) if username else None,
+            use_ssl=use_ssl,
+            verify_certs=False,
+            ssl_show_warn=False,
         )
-        self._collection = self._client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
+        self._index = index_name
         self._embedder = embedder
+        self._ensure_index(embedding_dim)
+
+    def _ensure_index(self, dim: int) -> None:
+        if self._client.indices.exists(index=self._index):
+            return
+        mapping = {
+            **self._INDEX_SETTINGS,
+            "mappings": {
+                "properties": {
+                    "embedding": {
+                        "type": "knn_vector",
+                        "dimension": dim,
+                        "method": {
+                            "name": "hnsw",
+                            "space_type": "cosinesimil",
+                            "engine": "nmslib",
+                        },
+                    },
+                    "text": {"type": "text"},
+                    "paper_id": {"type": "keyword"},
+                    "section": {"type": "keyword"},
+                    "page": {"type": "integer"},
+                    "chunk_type": {"type": "keyword"},
+                    "title": {"type": "text"},
+                    "authors": {"type": "text"},
+                    "year": {"type": "integer"},
+                    "journal": {"type": "keyword"},
+                }
+            },
+        }
+        self._client.indices.create(index=self._index, body=mapping)
 
     async def add_chunks(self, chunks: list[Chunk], embeddings: list[list[float]], doc: Document) -> None:
         if not chunks:
             return
-        self._collection.add(
-            ids=[c.id for c in chunks],
-            embeddings=embeddings,
-            documents=[c.text for c in chunks],
-            metadatas=[c.to_chroma_metadata(doc) for c in chunks],
-        )
+        actions = []
+        for chunk, embedding in zip(chunks, embeddings):
+            actions.append({"index": {"_index": self._index, "_id": chunk.id}})
+            actions.append({"embedding": embedding, "text": chunk.text, **chunk.to_metadata(doc)})
+        self._client.bulk(body=actions)
 
-    async def query(self, query: str, n_results: int = 20, where=None) -> list[dict]:
-        kwargs = {}
-        if where:
-            kwargs["where"] = where
+    async def query(self, query: str, n_results: int = 20, doc_filter: list[str] | None = None) -> list[dict]:
         query_embedding = await self._embedder.embed_query(query)
-        results = self._collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results,
-            include=["documents", "metadatas", "distances"],
-            **kwargs,
-        )
-        if results is None:
-            return []
+        knn_clause = {"embedding": {"vector": query_embedding, "k": n_results}}
+
+        if doc_filter:
+            body = {
+                "size": n_results,
+                "query": {
+                    "bool": {
+                        "must": [{"knn": knn_clause}],
+                        "filter": [{"terms": {"paper_id": doc_filter}}],
+                    }
+                },
+            }
+        else:
+            body = {"size": n_results, "query": {"knn": knn_clause}}
+
+        response = self._client.search(index=self._index, body=body)
         chunks = []
-        for i in range(len(results["ids"][0])):
-            dist = results["distances"][0][i]
+        for hit in response["hits"]["hits"]:
+            src = hit["_source"]
             chunks.append({
-                "id": results["ids"][0][i],
-                "text": results["documents"][0][i],
-                "metadata": results["metadatas"][0][i],
-                "distance": dist,
-                "score": 1.0 - dist,
+                "id": hit["_id"],
+                "text": src["text"],
+                "metadata": {k: v for k, v in src.items() if k not in ("embedding", "text")},
+                "score": hit["_score"],
             })
         return chunks
 
     async def delete_paper(self, paper_id: str) -> int:
-        results = self._collection.get(where={"paper_id": paper_id})
-        ids = results["ids"]
-        if ids:
-            self._collection.delete(ids=ids)
-        return len(ids)
+        response = self._client.delete_by_query(
+            index=self._index,
+            body={"query": {"term": {"paper_id": paper_id}}},
+        )
+        return response["deleted"]
 
     def get_all_chunks_from_paper(self, paper_id: str) -> list[dict]:
-        results = self._collection.get(
-            where={"paper_id": paper_id},
-            include=["documents", "metadatas"],
+        response = self._client.search(
+            index=self._index,
+            body={
+                "size": 10000,
+                "query": {"term": {"paper_id": paper_id}},
+                "_source": {"excludes": ["embedding"]},
+            },
         )
         return [
-            {"id": rid, "text": rtext, "metadata": rmeta}
-            for rid, rtext, rmeta in zip(results["ids"], results["documents"], results["metadatas"])
+            {
+                "id": hit["_id"],
+                "text": hit["_source"]["text"],
+                "metadata": {k: v for k, v in hit["_source"].items() if k != "text"},
+            }
+            for hit in response["hits"]["hits"]
         ]
 
     @property
     def chunk_count(self) -> int:
-        return self._collection.count()
+        return self._client.count(index=self._index)["count"]
 
 
 class HybridRetriever:
@@ -127,8 +187,7 @@ class HybridRetriever:
         self._semantic = semantic_retriever
 
     async def __call__(self, query: str, n_results: int = 20, doc_filter: list[str] | None = None) -> list[dict]:
-        where = {"paper_id": {"$in": doc_filter}} if doc_filter else None
-        semantic_results = await self._semantic.query(query, n_results=n_results, where=where)
+        semantic_results = await self._semantic.query(query, n_results=n_results, doc_filter=doc_filter)
         keyword_results = self._keyword.query(query, n_results=n_results)
 
         if doc_filter:
